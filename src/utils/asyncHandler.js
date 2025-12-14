@@ -1,5 +1,8 @@
+// asyncHandler is a helper file
+// advantage: we don't have to put everything in a promise and try-catch
+
 const asyncHandler = (requestHandler) => {
-  (req, res, next) => {
+  return (req, res, next) => {
     Promise.resolve(requestHandler(req, res , next)).catch((err) => next(err))
   }
 }
