@@ -19,10 +19,10 @@ app.use(cookieParser())
 import userRouter from "./routes/user.routes.js"
 
 // routes declaration
-app.use("/api/v1/users" , userRouter)  //standard practice including api version
+app.use("/api/v1/users" , userRouter)  //standard practice including api version also
 
 
- //make url as: https://localhost:8000/users and https://localhost:8000/users/register and https://localhost:8000/users/login
+ //make url path as: https://localhost:8000/users and https://localhost:8000/users/register and https://localhost:8000/users/login
 
 
 export {app}
