@@ -4,6 +4,25 @@ import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
+const generateAccessAndRefreshTokens = async (userId) => {
+  try {
+    const user = await User.findById(userId);
+    const accessToken = user.generateAccessToken();
+    const refreshToken = user.generateRefreshToken();
+
+    // putting refreshToken inside database
+    user.refreshToken = refreshToken;
+    await user.save({ validateBeforeSave: false }); //saving refresh token inside db
+
+    return { accessToken, refreshToken };
+  } catch (error) {
+    throw new ApiError(
+      500,
+      "something went wrong while generating access token"
+    );
+  }
+};
+
 const registerUser = asyncHandler(async (req, res) => {
   //1. get user details from frontend
   const { fullName, email, username, password } = req.body;
@@ -86,4 +105,116 @@ const registerUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, userExists, "User registered successfully"));
 });
 
-export { registerUser };
+const loginUser = asyncHandler(async (req, res) => {
+  //req body -> data
+  // there is a code which work on both mode or any mode whether it is username based or email based
+  // find user
+  // password check
+  // access and refresh token
+  // send cookie
+  // return response
+
+  // req body -> data
+  const { email, username, password } = req.body;
+
+  if (!username || !email) {
+    throw new ApiError(400, "username or password is required");
+  }
+
+  // check given data of username or email is exists in db or not exist in db
+  const user = await User.findOne({
+    $or: [{ username }, { email }],
+  });
+
+  if (!user) {
+    throw new ApiError(404, "User does not exist");
+  }
+
+  // password check
+  /*
+  // User: it is object of mongoose of mongoDB
+  then through mongoose, you have all the methods you need or available such as findOne , updateOne these are available through mongoDB
+
+  but this method that you have created, such as correct password , generate token etc , they are avialable on your user
+
+  */
+
+  const isPasswordValid = await user.isPasswordCorrect(password);
+
+  if (isPasswordValid) {
+    throw new ApiError(401, "Invalid user credentials");
+  }
+
+  // give the access to the user whose id given by user._id, here you get access of accessToken and refresh tokwn
+  const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(
+    user._id
+  );
+
+  // .select is used to choose such field which we don't want
+  const loggedInUser = await User.findById(user._id).select(
+    "-password -refreshToken"
+  ); //now logged In user have all fields except these two
+
+  //now sending some cookies you have to design some optins that options are object
+  // by default cookie can be modified by anyone in frontend
+  // but when using options it get access by only server.
+
+  const options = {
+    httpOnly: true,
+    secure: true,
+  }; //here now cookie can only ne modified from the server and cannot be modified from the frontend
+
+  return (
+    res
+      .status(200)
+      // because of cookie-parser we can use cookie here
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", refreshToken, options)
+      .json(
+        new ApiResponse(
+          200, //this is statuscode
+          {
+            user: loggedInUser,
+            accessToken,
+            refreshToken,
+
+            /*
+        note: we already set access token and refresh tokewn in cookie but again we pass access token and refresh token by user . 
+        Reason: here we will take up that case handling when it could be the user hinself taking the access and refresh token from your side wanting to save, but it could be want to save in local storage. or may be he devlops mobile application where cookie will not be set there
+        */
+          }, //this is data
+          "User logged In successfully" //this is message
+        )
+        //this ApiResponse taken from the file ApiResponse.js inside we define statuscode , then data then message and then if success it show status code that's it
+      )
+  );
+});
+
+// for logout we are using middleware concept where we design own middleware that logout current user
+const logoutUser = asyncHandler(async (req, res) => {
+  //find user
+  await User.findByIdAndUpdate(
+    req.user._id,
+    {
+      $set: {
+        refreshToken: undefined,
+      },
+    },
+    {
+      new: true,
+    }
+  );
+
+  const options = {
+    httpOnly: true,
+    secure: true,
+  };
+
+  return res
+    .select(200)
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options)
+    .json(new ApiResponse(200, "User logged Out"));
+});
+
+export { registerUser, loginUser, logoutUser };
