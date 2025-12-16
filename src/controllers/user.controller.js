@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
+import jwt from "jsonwebtoken";
 
 const generateAccessAndRefreshTokens = async (userId) => {
   try {
@@ -117,9 +118,13 @@ const loginUser = asyncHandler(async (req, res) => {
   // req body -> data
   const { email, username, password } = req.body;
 
-  if (!username || !email) {
+  if (!(username || email)) {
     throw new ApiError(400, "username or password is required");
   }
+  // here is an alternative of above code based on logic discuss
+  /*if (!username && !email) {
+    throw new ApiError(400, "username or password is required");
+  } */
 
   // check given data of username or email is exists in db or not exist in db
   const user = await User.findOne({
@@ -217,4 +222,64 @@ const logoutUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, "User logged Out"));
 });
 
-export { registerUser, loginUser, logoutUser };
+/*
+when accessToken get expired after 24hrs then the user will get a 401 request that your access has expired,
+so what can the person at the frontend do,  if he is trying to access a resource and gets a 401 request then instead of telling the user to login again, what can he do? he can write a small code that :-
+if a 401 request comes, then hit an endpoint and get your access token refreshed from there, that  means, a new token will be otained.
+Now, how will you get a new token?
+you will send your refresh token in that request along with it, now as soon as I get the refresh token, what I will do in backend?
+Because it's stored inside my database, I'll match the refresh token to see if what you sent and what I have in the backend are the same. If it is , then let's start the session again. 
+So, I'll send a new access token in cookies and also a new refresh token. So, I'll refresh that as well save it 
+*/
+// thus, that endpoint going to be create here for user
+
+const refreshAccessToken = asyncHandler(async (req, res) => {
+  //refresh token of user
+  try {
+    const incomingRefreshToken =
+      req.cookies.refreshToken || req.body.refreshToken;
+
+    if (incomingRefreshToken) {
+      throw new ApiError(401, "unauthorized request");
+    }
+
+    const decodedToken = jwt.verify(
+      incomingRefreshToken,
+      process.env.REFRESH_TOKEN_SECRET
+    );
+
+    const user = await User.findById(decodedToken?._id);
+
+    if (!user) {
+      throw new ApiError(401, "Invalid refresh token");
+    }
+
+    if (incomingRefreshToken !== user?.refreshToken) {
+      throw new ApiError(404, "Refresh token is expired or used");
+    }
+
+    const options = {
+      httpOnly: true,
+      secure: true,
+    };
+
+    const { accessToken, newRefreshToken } =
+      await generateAccessAndRefreshTokens(user._id);
+
+    return res
+      .status(200)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", newRefreshToken, options)
+      .json(
+        new ApiResponse(
+          200,
+          { accessToken, refreshToken: newRefreshToken },
+          "Access token refreshed"
+        )
+      );
+  } catch (error) {
+    throw new ApiError(401, error?.message || "Invalid refresh token");
+  }
+});
+
+export { registerUser, loginUser, logoutUser, refreshAccessToken };
